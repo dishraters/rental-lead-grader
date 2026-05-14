@@ -11,7 +11,7 @@ The workflow is simple:
 
 ## Live demo
 
-Vercel URL: _filled after deployment_
+Vercel URL: https://rental-lead-grader.vercel.app
 
 ## Local setup
 
@@ -135,6 +135,11 @@ This is a Next.js app and deploys cleanly to Vercel with:
 - Output handled automatically by Vercel
 
 No secrets or environment variables are required for the current MVP.
+
+## Proof screenshots
+
+- Dashboard: `proof-dashboard.png`
+- Property detail/edit: `proof-detail.png`
 
 ## Limitations
 
