@@ -1,5 +1,5 @@
 'use client';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './globals.css';
 
 const STATUS = ['New','Needs Zillow Verification','Needs AirDNA','Needs Contact Info','Call First','Contacted','Rejected','Keeper'];
@@ -13,6 +13,7 @@ const FIELD_ALIASES = {
   hospitalName: ['Hospital / demand driver name','Hospital','Demand driver','hospital_demand_driver_name'],
   hospitalDistance: ['Distance or drive time to hospital','Hospital Distance','Drive time','distance_or_drive_time_to_hospital'],
   airdnaAnnual: ['AirDNA projected annual revenue','AirDNA Projected Annual Revenue','airdna_projected_annual_revenue'],
+  airdnaMonthly: ['AirDNA Monthly Revenue','AirDNA monthly revenue','Monthly Revenue'],
   contactName: ['Contact name','Contact Name','contact_name'], phone: ['Phone','phone'], email: ['Email','email'], website: ['Website','website'],
   verificationStatus: ['Verification status','Verification Status','verification_status'], leadStatus: ['Lead status','Lead Status','lead_status'],
   notes: ['Notes','notes'], lastUpdated: ['Last updated','Last Updated','last_updated']
@@ -39,8 +40,8 @@ function num(v){ const n = Number(String(v ?? '').replace(/[$,]/g,'')); return N
 function minutes(v){ const m = String(v||'').match(/(\d+(\.\d+)?)/); return m ? Number(m[1]) : null; }
 function hasAny(text, words){ const t = String(text||'').toLowerCase(); return words.some(w=>t.includes(w)); }
 export function scoreLead(lead){
-  const rent = num(lead.rent), beds = num(lead.beds), baths = num(lead.baths), annual = num(lead.airdnaAnnual);
-  const monthlyRevenue = annual ? annual / 12 : 0;
+  const rent = num(lead.rent), beds = num(lead.beds), baths = num(lead.baths), annual = num(lead.airdnaAnnual), importedMonthly = num(lead.airdnaMonthly);
+  const monthlyRevenue = importedMonthly || (annual ? annual / 12 : 0);
   const netProfit = monthlyRevenue - rent - 100;
   const mins = minutes(lead.hospitalDistance);
   const disqualifiers = [];
@@ -50,15 +51,15 @@ export function scoreLead(lead){
   if (hasAny(lead.restrictions, ['55+','senior','income-restricted','income restricted','student-only','student only'])) disqualifiers.push('Restricted property: 55+, senior, income-restricted, or student-only');
   if (hasAny(lead.leaseTerm, ['no sublet','no corporate','not allowed','incompatible'])) disqualifiers.push('Lease term is incompatible with arbitrage');
   if (mins !== null && mins > 15) disqualifiers.push('Too far from hospital / demand driver');
-  if (!annual || hasAny(lead.verificationStatus, ['needs airdna']) || hasAny(lead.notes, ['unreliable airdna'])) uncertain.push('Missing or unverified AirDNA estimate');
-  if (annual && netProfit < 1000) disqualifiers.push('Estimated net profit is below $1,000/month');
+  if (!monthlyRevenue || hasAny(lead.verificationStatus, ['needs airdna']) || hasAny(lead.notes, ['unreliable airdna'])) uncertain.push('Missing or unverified AirDNA estimate');
+  if (monthlyRevenue && netProfit < 1000) disqualifiers.push('Estimated net profit is below $1,000/month');
   if (!lead.hospitalName || !lead.hospitalDistance) uncertain.push('Hospital / demand proximity needs verification');
   if (hasAny(lead.furnishedStatus, ['unknown','unclear']) || !lead.furnishedStatus) uncertain.push('Furnished status needs verification');
   if (hasAny(lead.leaseTerm, ['unknown']) || !lead.leaseTerm) uncertain.push('Lease term needs verification');
   if (!lead.phone && !lead.email && !lead.website) uncertain.push('Missing contact path');
 
   const breakdown = {
-    profitability: Math.max(0, Math.min(40, annual ? (netProfit >= 1400 ? 40 : netProfit >= 1200 ? 36 : netProfit >= 1000 ? 32 : netProfit >= 700 ? 20 : 8) : 0)),
+    profitability: Math.max(0, Math.min(40, monthlyRevenue ? (netProfit >= 1400 ? 40 : netProfit >= 1200 ? 36 : netProfit >= 1000 ? 32 : netProfit >= 700 ? 20 : 8) : 0)),
     rentAffordability: rent && rent <= 1100 ? 15 : rent <= 1250 ? 12 : rent <= 1400 ? 8 : 0,
     demandProximity: mins === null ? 6 : mins <= 10 ? 15 : mins <= 15 ? 11 : mins <= 20 ? 5 : 0,
     zillowVerification: hasAny(lead.verificationStatus, ['verified']) ? 10 : hasAny(lead.verificationStatus, ['needs zillow']) ? 2 : 5,
@@ -75,7 +76,7 @@ export function scoreLead(lead){
   else grade = 'D';
   let nextAction = 'Review lead';
   if (grade === 'F') nextAction = 'Reject — ' + disqualifiers[0];
-  else if (!annual || hasAny(lead.verificationStatus, ['needs airdna'])) nextAction = 'Run/verify AirDNA with exact address and 1/1 inputs';
+  else if (!monthlyRevenue || hasAny(lead.verificationStatus, ['needs airdna'])) nextAction = 'Run/verify AirDNA with exact address and 1/1 inputs';
   else if (hasAny(lead.verificationStatus, ['needs zillow']) || uncertain.some(x=>x.includes('Furnished') || x.includes('Lease'))) nextAction = 'Verify Zillow actual unit rent, furnished option, and lease terms';
   else if (!lead.phone && !lead.email && !lead.website) nextAction = 'Find leasing contact info';
   else if (grade === 'A' || grade === 'B') nextAction = 'Call first — verify corporate/furnished availability and all-in monthly cost';
@@ -92,6 +93,15 @@ function parseCSV(text){
 function toCSV(leads){ const cols = ['Property name','Address','City','State','Zillow link','Rent','Beds','Baths','Furnished status','Lease term','Restrictions','Hospital / demand driver name','Distance or drive time to hospital','AirDNA projected annual revenue','Contact name','Phone','Email','Website','Verification status','Lead status','Notes','Last updated']; const keys=['propertyName','address','city','state','zillowLink','rent','beds','baths','furnishedStatus','leaseTerm','restrictions','hospitalName','hospitalDistance','airdnaAnnual','contactName','phone','email','website','verificationStatus','leadStatus','notes','lastUpdated']; return [cols.join(','),...leads.map(l=>keys.map(k=>`"${String(l[k]??'').replaceAll('"','""')}"`).join(','))].join('\n'); }
 export default function App(){
   const [leads,setLeads]=useState(()=>{try{return JSON.parse(localStorage.getItem('rlg-leads'))||SAMPLE}catch{return SAMPLE}});
+  const [liveMeta,setLiveMeta]=useState(null);
+  useEffect(()=>{ if(!localStorage.getItem('rlg-leads')) loadLiveData(false); }, []);
+  async function loadLiveData(force=true){
+    const res = await fetch('/current-leads.json?ts=' + Date.now());
+    if(!res.ok) throw new Error('Live lead file unavailable');
+    const data = await res.json();
+    if(data.leads?.length){ save(data.leads); setLiveMeta(data); }
+    else if(force) alert('No live leads found');
+  }
   const [view,setView]=useState('All Leads'), [query,setQuery]=useState(''), [grade,setGrade]=useState(''), [status,setStatus]=useState(''), [city,setCity]=useState(''), [selected,setSelected]=useState(null);
   function save(next){ setLeads(next); localStorage.setItem('rlg-leads', JSON.stringify(next)); }
   const scored = useMemo(()=>leads.map(l=>({...l,...scoreLead(l)})).sort((a,b)=>b.score-a.score),[leads]);
@@ -105,7 +115,8 @@ export default function App(){
   });
   const stats = {total:scored.length, call:scored.filter(l=>['A','B'].includes(l.grade)&&!l.disqualifiers.length&&(l.phone||l.email||l.website)).length, rejected:scored.filter(l=>l.grade==='F'||l.leadStatus==='Rejected').length, avg:Math.round(scored.reduce((a,l)=>a+l.score,0)/(scored.length||1))};
   function updateLead(id, patch){ save(leads.map(l=>l.id===id?{...l,...patch,lastUpdated:new Date().toISOString().slice(0,10)}:l)); setSelected(s=>s&&s.id===id?{...s,...patch}:s); }
-  return <div><header><div><h1>Rental Lead Grader</h1><p>Import Zillow + AirDNA leads → auto-score → call the money leads first.</p></div><div className="actions"><button onClick={()=>save(SAMPLE)}>Load sample leads</button><label className="btn">Import CSV<input type="file" accept=".csv" hidden onChange={async e=>{const f=e.target.files[0]; if(f) save(parseCSV(await f.text()))}}/></label><a className="btn" href={'data:text/csv;charset=utf-8,'+encodeURIComponent(toCSV(leads))} download="rental-leads-export.csv">Export CSV</a></div></header>
+  return <div><header><div><h1>Rental Lead Grader</h1><p>Import Zillow + AirDNA leads → auto-score → call the money leads first.</p></div><div className="actions"><button onClick={()=>loadLiveData()}>Refresh live Bronson data</button><button onClick={()=>save(SAMPLE)}>Load sample leads</button><label className="btn">Import CSV<input type="file" accept=".csv" hidden onChange={async e=>{const f=e.target.files[0]; if(f) save(parseCSV(await f.text()))}}/></label><a className="btn" href={'data:text/csv;charset=utf-8,'+encodeURIComponent(toCSV(leads))} download="rental-leads-export.csv">Export CSV</a></div></header>
+  {liveMeta && <div className="livebar">Live Bronson sheet: {liveMeta.count} leads, last synced {new Date(liveMeta.fetchedAt).toLocaleString()}</div>}
   <section className="stats"><Card label="Total leads" value={stats.total}/><Card label="Call first" value={stats.call}/><Card label="Rejected" value={stats.rejected}/><Card label="Avg score" value={stats.avg}/></section>
   <nav>{['All Leads','Call First','Needs Verification','Rejected','Keepers'].map(v=><button className={view===v?'active':''} onClick={()=>setView(v)}>{v}</button>)}</nav>
   <section className="filters"><input placeholder="Search property, city, notes..." value={query} onChange={e=>setQuery(e.target.value)}/><select value={grade} onChange={e=>setGrade(e.target.value)}><option value="">All grades</option>{['A','B','C','D','F'].map(g=><option>{g}</option>)}</select><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{STATUS.map(s=><option>{s}</option>)}</select><select value={city} onChange={e=>setCity(e.target.value)}><option value="">All cities</option>{[...new Set(scored.map(l=>l.city).filter(Boolean))].sort().map(c=><option>{c}</option>)}</select></section>

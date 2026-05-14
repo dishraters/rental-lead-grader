@@ -1,0 +1,32 @@
+name: Daily Bronson Lead Sync
+
+on:
+  schedule:
+    # 7:15 AM Eastern during daylight time. Adjust seasonally if exact local time matters.
+    - cron: '15 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GOOGLE_SHEET_ID: 1QVxoUHtG-NmMX0xWxjqhsURvKxUO_znDtPYgJzBhoRE
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node scripts/fetch-google-sheet.js
+      - run: npm ci
+      - run: npm run build
+      - name: Commit updated leads
+        run: |
+          git config user.name "rental-lead-grader-bot"
+          git config user.email "actions@github.com"
+          git add public/current-leads.json data/latest-bronson-sheet-export.csv
+          git diff --cached --quiet && echo "No lead changes" || git commit -m "data: sync Bronson leads"
+          git push

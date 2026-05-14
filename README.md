@@ -4,7 +4,7 @@ A fast MVP web app for Bronson-style Zillow + AirDNA rental arbitrage lead revie
 
 The workflow is simple:
 
-1. Import apartment leads from CSV / Google Sheet export.
+1. Load the latest Bronson Zillow/AirDNA leads from the public Google Sheet sync or import CSV manually.
 2. Automatically calculate AirDNA monthly revenue, estimated net profit, score, grade, disqualifiers, and next action.
 3. Sort and filter leads so a VA/caller can call the best properties first.
 4. Track status, notes, contact info, and verification state.
@@ -31,6 +31,18 @@ Open the local URL shown by Vite, usually `http://127.0.0.1:5173`.
 - Sample dataset: `data/sample-leads.csv`
 - Schema: `schema.md`
 - Env example: `.env.example`
+
+## Live Bronson data sync
+
+The app now includes a daily GitHub Actions sync from the Bronson Google Sheet into `public/current-leads.json`. Vercel redeploys from GitHub, so the live site can refresh from updated data instead of only sample rows.
+
+- Source Sheet ID: `1QVxoUHtG-NmMX0xWxjqhsURvKxUO_znDtPYgJzBhoRE`
+- Sync script: `scripts/fetch-google-sheet.js`
+- Daily workflow: `.github/workflows/daily-bronson-sync.yml`
+- Static app data: `public/current-leads.json`
+- Raw latest CSV copy: `data/latest-bronson-sheet-export.csv`
+
+The current automation syncs whatever is already in the Bronson sheet. It does not yet fully automate new Zillow/AirDNA research end-to-end because Zillow/AirDNA can require login, paywall handling, browser verification, and anti-bot-safe workflows.
 
 ## CSV import
 
@@ -146,15 +158,14 @@ No secrets or environment variables are required for the current MVP.
 - No login/auth yet
 - No shared backend/database yet
 - Edits are local to the browser
-- CSV import replaces current browser data instead of merging/deduping
-- Google Sheets sync is manual export/import only
+- CSV import/live refresh replaces current browser data instead of merging/deduping
 - Hospital drive time is parsed from text and not geocoded
 - AirDNA data is imported manually; no AirDNA API integration
 
 ## Next improvements
 
 1. Add Supabase so Bronson/VA/operator data is shared across devices.
-2. Add Google Sheets sync by sheet URL/tab.
+2. Add a true daily research worker that finds new Zillow leads, audits actual available units, and flags AirDNA login-required work.
 3. Add dedupe by address + property name.
 4. Add call outcome fields and callback reminders.
 5. Add map/geocoding drive-time verification to hospitals.
