@@ -21,11 +21,15 @@ function parseCSV(text) {
 }
 function first(raw, names) { for (const n of names) if (raw[n] !== undefined && raw[n] !== '') return raw[n]; return ''; }
 function num(v) { const n = Number(String(v ?? '').replace(/[$,]/g,'')); return Number.isFinite(n) ? n : 0; }
+function extractPhone(text) { const m = String(text || '').match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/); return m ? m[0] : ''; }
+function normalizeStatus(status) { const s = String(status || '').toLowerCase(); if (s.includes('keep')) return 'Call First'; if (s.includes('reject')) return 'Rejected'; if (s.includes('airdna')) return 'Needs AirDNA'; if (s.includes('zillow')) return 'Needs Zillow Verification'; if (s.includes('contact')) return 'Needs Contact Info'; return status || 'New'; }
 function normalize(raw, i) {
   const monthly = num(first(raw, ['AirDNA Monthly Revenue','Monthly Revenue','AirDNA monthly revenue']));
   const annual = num(first(raw, ['AirDNA projected annual revenue','AirDNA Projected Annual Revenue','AirDNA Annual Revenue'])) || (monthly ? monthly * 12 : 0);
   const address = first(raw, ['Address','address']);
   const propertyName = first(raw, ['Property name','Property Name','Name','Apartment Name','Property']) || address.split(',')[0] || `Lead ${i+1}`;
+  const rawContact = first(raw, ['Contact name','Contact / PM','Contact','PM']);
+  const sourceStatus = first(raw, ['Lead status','Status']);
   return {
     id: `${address || propertyName}-${i}`.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''),
     propertyName,
@@ -42,13 +46,13 @@ function normalize(raw, i) {
     hospitalName: first(raw, ['Hospital / demand driver name','Hospital','Demand Driver','Nearest Hospital']) || first(raw, ['Hospital <=15 min?']),
     hospitalDistance: first(raw, ['Distance or drive time to hospital','Drive Time','Hospital Distance']) || first(raw, ['Hospital <=15 min?']),
     airdnaAnnual: annual ? Math.round(annual) : '',
-    contactName: first(raw, ['Contact name','Contact / PM','Contact','PM']),
-    phone: first(raw, ['Phone','phone']),
+    contactName: rawContact,
+    phone: first(raw, ['Phone','phone']) || extractPhone(rawContact),
     email: first(raw, ['Email','email']),
     website: first(raw, ['Website','website']),
     verificationStatus: first(raw, ['Verification status','Verification Status']) || (first(raw, ['Last Checked']) ? 'Verified' : 'New'),
-    leadStatus: first(raw, ['Lead status','Status']) || 'New',
-    notes: [first(raw, ['Evidence / Notes','Notes']), first(raw, ['Investor View']), first(raw, ['Next Action'])].filter(Boolean).join(' | '),
+    leadStatus: normalizeStatus(sourceStatus),
+    notes: [`Source status: ${sourceStatus}`.trim(), first(raw, ['Evidence / Notes','Notes']), first(raw, ['Investor View']), first(raw, ['Next Action'])].filter(Boolean).join(' | '),
     lastUpdated: first(raw, ['Last updated','Last Checked']) || new Date().toISOString().slice(0,10)
   };
 }

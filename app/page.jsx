@@ -64,7 +64,7 @@ export function scoreLead(lead){
     demandProximity: mins === null ? 6 : mins <= 10 ? 15 : mins <= 15 ? 11 : mins <= 20 ? 5 : 0,
     zillowVerification: hasAny(lead.verificationStatus, ['verified']) ? 10 : hasAny(lead.verificationStatus, ['needs zillow']) ? 2 : 5,
     furnishedLeaseFit: hasAny(lead.furnishedStatus, ['furnished']) && !hasAny(lead.leaseTerm, ['unknown']) ? 10 : hasAny(lead.furnishedStatus, ['unknown','unclear']) ? 4 : 2,
-    contactability: lead.phone && (lead.email || lead.website) ? 10 : (lead.phone || lead.email || lead.website) ? 6 : 0
+    contactability: lead.phone && (lead.email || lead.website || lead.contactName) ? 10 : (lead.phone || lead.email || lead.website || lead.contactName) ? 6 : 0
   };
   const score = Object.values(breakdown).reduce((a,b)=>a+b,0);
   let grade = 'D';
@@ -78,7 +78,7 @@ export function scoreLead(lead){
   if (grade === 'F') nextAction = 'Reject — ' + disqualifiers[0];
   else if (!monthlyRevenue || hasAny(lead.verificationStatus, ['needs airdna'])) nextAction = 'Run/verify AirDNA with exact address and 1/1 inputs';
   else if (hasAny(lead.verificationStatus, ['needs zillow']) || uncertain.some(x=>x.includes('Furnished') || x.includes('Lease'))) nextAction = 'Verify Zillow actual unit rent, furnished option, and lease terms';
-  else if (!lead.phone && !lead.email && !lead.website) nextAction = 'Find leasing contact info';
+  else if (!lead.phone && !lead.email && !lead.website && !lead.contactName) nextAction = 'Find leasing contact info';
   else if (grade === 'A' || grade === 'B') nextAction = 'Call first — verify corporate/furnished availability and all-in monthly cost';
   else nextAction = 'Verify missing fields before calling';
   return {monthlyRevenue, netProfit, disqualifiers, uncertain, breakdown, score, grade, nextAction, explanation: `${grade}: $${Math.round(netProfit).toLocaleString()}/mo estimated net after rent + $100 buffer. ${disqualifiers.length ? 'Rejected: '+disqualifiers.join('; ') : uncertain.length ? 'Needs verification: '+uncertain.join('; ') : 'Passes hard filters.'}`};
@@ -105,15 +105,16 @@ export default function App(){
   const [view,setView]=useState('All Leads'), [query,setQuery]=useState(''), [grade,setGrade]=useState(''), [status,setStatus]=useState(''), [city,setCity]=useState(''), [selected,setSelected]=useState(null);
   function save(next){ setLeads(next); localStorage.setItem('rlg-leads', JSON.stringify(next)); }
   const scored = useMemo(()=>leads.map(l=>({...l,...scoreLead(l)})).sort((a,b)=>b.score-a.score),[leads]);
+  const isCallFirst = l => ['Call First','Keeper'].includes(l.leadStatus) || (['A','B'].includes(l.grade) && !l.disqualifiers.length && (l.phone||l.email||l.website||l.contactName));
   const filtered = scored.filter(l=>{
-    if(view==='Call First' && !( ['A','B'].includes(l.grade) && !l.disqualifiers.length && (l.phone||l.email||l.website))) return false;
+    if(view==='Call First' && !isCallFirst(l)) return false;
     if(view==='Rejected' && l.grade!=='F' && l.leadStatus!=='Rejected') return false;
     if(view==='Needs Verification' && !(l.uncertain.length || String(l.verificationStatus).includes('Needs'))) return false;
     if(view==='Keepers' && !(l.grade==='A' || l.leadStatus==='Keeper')) return false;
     if(grade && l.grade!==grade) return false; if(status && l.leadStatus!==status) return false; if(city && l.city!==city) return false;
     if(query && !JSON.stringify(l).toLowerCase().includes(query.toLowerCase())) return false; return true;
   });
-  const stats = {total:scored.length, call:scored.filter(l=>['A','B'].includes(l.grade)&&!l.disqualifiers.length&&(l.phone||l.email||l.website)).length, rejected:scored.filter(l=>l.grade==='F'||l.leadStatus==='Rejected').length, avg:Math.round(scored.reduce((a,l)=>a+l.score,0)/(scored.length||1))};
+  const stats = {total:scored.length, call:scored.filter(isCallFirst).length, rejected:scored.filter(l=>l.grade==='F'||l.leadStatus==='Rejected').length, avg:Math.round(scored.reduce((a,l)=>a+l.score,0)/(scored.length||1))};
   function updateLead(id, patch){ save(leads.map(l=>l.id===id?{...l,...patch,lastUpdated:new Date().toISOString().slice(0,10)}:l)); setSelected(s=>s&&s.id===id?{...s,...patch}:s); }
   return <div><header><div><h1>Rental Lead Grader</h1><p>Import Zillow + AirDNA leads → auto-score → call the money leads first.</p></div><div className="actions"><button onClick={()=>loadLiveData()}>Refresh live Bronson data</button><button onClick={()=>save(SAMPLE)}>Load sample leads</button><label className="btn">Import CSV<input type="file" accept=".csv" hidden onChange={async e=>{const f=e.target.files[0]; if(f) save(parseCSV(await f.text()))}}/></label><a className="btn" href={'data:text/csv;charset=utf-8,'+encodeURIComponent(toCSV(leads))} download="rental-leads-export.csv">Export CSV</a></div></header>
   {liveMeta && <div className="livebar">Live Bronson sheet: {liveMeta.count} leads, last synced {new Date(liveMeta.fetchedAt).toLocaleString()}</div>}
